@@ -1,0 +1,219 @@
+// 🔁 Confirm server.js is running
+console.log("🔁 server.js loaded and running...");
+
+const express = require('express');
+const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
+const fs = require('fs');
+const path = require('path');
+const { exec } = require('child_process');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// ✅ Create HTTP server and attach socket.io to it
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Allow all origins for dev
+    methods: ["GET", "POST"]
+  }
+});
+
+// ✅ Health check endpoint
+app.get('/', (req, res) => res.send('CodeOrbit Backend Running'));
+
+// ✅ POST /execute to run code inside a Docker container
+app.post('/execute', (req, res) => {
+  const code = req.body.code;
+  const filePath = path.join(__dirname, 'temp.js');
+
+  // Write code to temp.js file
+  fs.writeFileSync(filePath, code);
+
+  // Run code in isolated Docker container
+  exec(`docker run --rm -v ${filePath}:/app/temp.js node:18 node /app/temp.js`, (err, stdout, stderr) => {
+    if (err || stderr) {
+      console.error("🚨 Error during execution:", stderr || err.message);
+      return res.json({ output: stderr || 'Execution error' });
+    }
+    console.log("✅ Code executed successfully");
+    return res.json({ output: stdout });
+  });
+});
+
+// ✅ WebSocket: Handle real-time collaboration
+io.on('connection', (socket) => {
+  console.log("🧪 io.on('connection') triggered!");
+  console.log("Client connected:", socket.id);
+
+  // Receive code update from one client
+  socket.on('codeUpdate', (newCode) => {
+    console.log(`📥 Received codeUpdate from ${socket.id}:`);
+    console.log(newCode);
+
+    // Broadcast to all other connected clients
+    socket.broadcast.emit('codeUpdate', newCode);
+    console.log("📡 Broadcasted update to other clients.");
+  });
+
+  // Log disconnection
+  socket.on('disconnect', () => {
+    console.log("❌ Client disconnected:", socket.id);
+  });
+});
+Request URL:
+ws://3.136.116.36:3000/socket.io/?EIO=4&transport=websocket
+Request Method:
+GET
+Status Code:
+101 Switching Protocols
+access-control-allow-origin:
+*
+connection:
+Upgrade
+sec-websocket-accept:
+G1UKbjodYPgdJHlS4KeUUBGoPQw=
+upgrade:
+websocket
+accept-encoding:
+gzip, deflate
+accept-language:
+en-US,en;q=0.9
+cache-control:
+no-cache
+connection:
+Upgrade
+host:Request URL:
+ws://3.136.116.36:3000/socket.io/?EIO=4&transport=websocket
+Request Method:Request URL:
+ws://3.136.116.36:3000/socket.io/?EIO=4&transport=websocket
+Request Method:
+GET
+Status Code:
+101 Switching Protocols
+access-control-allow-origin:
+*
+connection:
+Upgrade
+sec-websocket-accept:
+G1UKbjodYPgdJHlS4KeUUBGoPQw=
+upgrade:
+websocket
+accept-encoding:
+gzip, deflate
+accept-language:
+en-US,en;q=0.9
+cache-control:
+no-cache
+connection:
+Upgrade
+host:
+3.136.116.36:3000
+origin:
+http://localhost:3001
+pragma:
+no-cache
+sec-websocket-extensions:
+permessage-deflate; client_max_window_bits
+sec-websocket-key:
+hrO214lc7x/GbpJjPsea3w==
+sec-websocket-version:
+13
+upgrade:
+websocket
+user-agent:
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
+GET
+Status Code:
+101 Switching Protocols
+access-control-allow-origin:
+*
+connection:
+Upgrade
+sec-websocket-accept:
+G1UKbjodYPgdJHlS4KeUUBGoPQw=
+upgrade:
+websocket
+accept-encoding:
+gzip, deflate
+accept-language:
+en-US,en;q=0.9
+cache-control:
+no-cache
+connection:
+Upgrade
+host:
+3.136.116.36:3000
+origin:
+http://localhost:3001
+pragma:
+no-cache
+sec-websocket-extensions:
+permessage-deflate; client_max_window_bits
+sec-websocket-key:
+hrO214lc7x/GbpJjPsea3w==
+sec-websocket-version:
+13
+upgrade:
+websocket
+user-agent:
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36Request URL:
+ws://3.136.116.36:3000/socket.io/?EIO=4&transport=websocket
+Request Method:
+GET
+Status Code:
+101 Switching Protocols
+access-control-allow-origin:
+*
+connection:
+Upgrade
+sec-websocket-accept:
+G1UKbjodYPgdJHlS4KeUUBGoPQw=
+upgrade:
+websocket
+accept-encoding:
+gzip, deflate
+accept-language:
+en-US,en;q=0.9
+cache-control:
+no-cache
+connection:
+Upgrade
+host:
+3.136.116.36:3000
+origin:
+http://localhost:3001
+pragma:
+no-cache
+sec-websocket-extensions:
+permessage-deflate; client_max_window_bits
+sec-websocket-key:
+hrO214lc7x/GbpJjPsea3w==
+sec-websocket-version:
+13
+upgrade:
+websocket
+user-agent:
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
+3.136.116.36:3000
+origin:
+http://localhost:3001
+pragma:
+no-cache
+sec-websocket-extensions:
+permessage-deflate; client_max_window_bits
+sec-websocket-key:
+hrO214lc7x/GbpJjPsea3w==
+sec-websocket-version:
+13
+upgrade:
+websocket
+user-agent:
+Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
+// ✅ Start backend server on IPv4
+server.listen(3000, '0.0.0.0', () => {
+  console.log('🚀 Server running on port 3000');
+});
