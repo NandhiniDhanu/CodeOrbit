@@ -66,12 +66,12 @@ jobs:
         working-directory: backend
         run: |
           TAR_OUT="../deploy-${{ github.sha }}.tar.gz"
-          # include ecosystem.config.js only if present
-          if [ -f ecosystem.config.js ]; then
+          # include ecosystem.config.cjs only if present
+          if [ -f ecosystem.config.cjs ]; then
             tar --exclude='./node_modules/.cache' -czf "$TAR_OUT" \
-              package*.json server.js ecosystem.config.js
+              package*.json server.js ecosystem.config.cjs
           else
-            echo "⚠️ No ecosystem.config.js found — PM2 fallback will use server.js"
+            echo "⚠️ No ecosystem.config.cjs found — PM2 fallback will use server.js"
             tar --exclude='./node_modules/.cache' -czf "$TAR_OUT" \
               package*.json server.js
           fi
@@ -151,8 +151,8 @@ jobs:
 
             # Restart application (prefer ecosystem, else fallback to server.js)
             cd "$CURRENT_LINK"
-            if [ -f "ecosystem.config.js" ]; then
-              pm2 startOrRestart ecosystem.config.js --update-env
+            if [ -f "ecosystem.config.cjs" ]; then
+              pm2 startOrRestart ecosystem.config.cjs --update-env
             else
               # Fallback: start by script name using PM2
               APP_NAME="codeorbit-backend"
@@ -220,8 +220,8 @@ jobs:
               echo "Rolling back to: $PREVIOUS_RELEASE"
               ln -sfn "$PREVIOUS_RELEASE" "$CURRENT_LINK"
               cd "$CURRENT_LINK"
-              if [ -f "ecosystem.config.js" ]; then
-                pm2 startOrRestart ecosystem.config.js --update-env
+              if [ -f "ecosystem.config.cjs" ]; then
+                pm2 startOrRestart ecosystem.config.cjs --update-env
               else
                 APP_NAME="codeorbit-backend"
                 pm2 describe "$APP_NAME" >/dev/null 2>&1 && pm2 reload "$APP_NAME" --update-env || pm2 start server.js --name "$APP_NAME"
