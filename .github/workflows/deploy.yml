@@ -1,0 +1,196 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+env:
+  NODE_VERSION: '18.x'  # Adjust based on your app
+  DEPLOY_PATH: /var/www/myapp
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run linter
+        run: npm run lint
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Create deployment package
+        run: |
+          tar -czf deploy-${{ github.sha }}.tar.gz \
+            package*.json \
+            dist/ \
+            node_modules/ \
+            ecosystem.config.js \
+            --exclude=node_modules/.cache
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package
+          path: deploy-${{ github.sha }}.tar.gz
+          retention-days: 7
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: http://${{ secrets.EC2_HOST }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Copy deployment package to EC2
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            deploy-${{ github.sha }}.tar.gz \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/
+
+      - name: Deploy to EC2
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
+            
+            # Set variables
+            DEPLOY_PATH="${{ env.DEPLOY_PATH }}"
+            PACKAGE_NAME="deploy-${{ github.sha }}.tar.gz"
+            RELEASE_DIR="$DEPLOY_PATH/releases/${{ github.sha }}"
+            CURRENT_LINK="$DEPLOY_PATH/current"
+            
+            # Create release directory
+            mkdir -p "$RELEASE_DIR"
+            
+            # Extract package
+            tar -xzf "/tmp/$PACKAGE_NAME" -C "$RELEASE_DIR"
+            
+            # Create .env symlink (assuming .env is stored separately)
+            ln -sf "$DEPLOY_PATH/shared/.env" "$RELEASE_DIR/.env"
+            
+            # Store previous release for rollback
+            if [ -L "$CURRENT_LINK" ]; then
+              PREVIOUS_RELEASE=$(readlink "$CURRENT_LINK")
+              echo "$PREVIOUS_RELEASE" > "$DEPLOY_PATH/previous_release.txt"
+            fi
+            
+            # Update current symlink
+            ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
+            
+            # Restart application (adjust based on your process manager)
+            cd "$CURRENT_LINK"
+            pm2 restart ecosystem.config.js --update-env || pm2 start ecosystem.config.js
+            
+            # Health check
+            sleep 5
+            if ! curl -f http://localhost:3000/health > /dev/null 2>&1; then
+              echo "Health check failed! Rolling back..."
+              if [ -f "$DEPLOY_PATH/previous_release.txt" ]; then
+                ROLLBACK_DIR=$(cat "$DEPLOY_PATH/previous_release.txt")
+                ln -sfn "$ROLLBACK_DIR" "$CURRENT_LINK"
+                cd "$CURRENT_LINK"
+                pm2 restart ecosystem.config.js
+              fi
+              exit 1
+            fi
+            
+            # Cleanup old releases (keep last 5)
+            cd "$DEPLOY_PATH/releases"
+            ls -t | tail -n +6 | xargs -r rm -rf
+            
+            # Cleanup temp file
+            rm -f "/tmp/$PACKAGE_NAME"
+            
+            echo "Deployment successful!"
+          EOF
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment successful to EC2"
+          else
+            echo "❌ Deployment failed - check logs"
+          fi
+
+  rollback:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment:
+      name: production
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rollback deployment
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
+            DEPLOY_PATH="${{ env.DEPLOY_PATH }}"
+            CURRENT_LINK="$DEPLOY_PATH/current"
+            
+            if [ -f "$DEPLOY_PATH/previous_release.txt" ]; then
+              PREVIOUS_RELEASE=$(cat "$DEPLOY_PATH/previous_release.txt")
+              echo "Rolling back to: $PREVIOUS_RELEASE"
+              ln -sfn "$PREVIOUS_RELEASE" "$CURRENT_LINK"
+              cd "$CURRENT_LINK"
+              pm2 restart ecosystem.config.js
+              echo "✅ Rollback completed successfully"
+            else
+              echo "❌ No previous release found for rollback"
+              exit 1
+            fi
+          EOF
