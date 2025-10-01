@@ -4,13 +4,12 @@ on:
   push:
     branches:
       - main
-      - develop
   pull_request:
     branches:
       - main
 
 env:
-  NODE_VERSION: '18.x'  # Adjust based on your app
+  NODE_VERSION: '18.x'
   DEPLOY_PATH: /var/www/myapp
 
 jobs:
@@ -25,15 +24,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: cd backend && npm ci
 
       - name: Run tests
-        run: npm test
+        run: cd backend && npm test
 
       - name: Run linter
-        run: npm run lint
+        run: cd backend && npm run lint
 
   build:
     needs: test
@@ -48,21 +48,24 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: cd backend && npm ci
 
       - name: Build application
-        run: npm run build
+        run: cd backend && npm run build
 
       - name: Create deployment package
         run: |
-          tar -czf deploy-${{ github.sha }}.tar.gz \
+          cd backend
+          tar -czf ../deploy-${{ github.sha }}.tar.gz \
             package*.json \
-            dist/ \
-            node_modules/ \
+            server.js \
             ecosystem.config.js \
+            node_modules/ \
             --exclude=node_modules/.cache
+          cd ..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -75,9 +78,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: http://${{ secrets.EC2_HOST }}
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -126,7 +126,7 @@ jobs:
             # Update current symlink
             ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
             
-            # Restart application (adjust based on your process manager)
+            # Restart application
             cd "$CURRENT_LINK"
             pm2 restart ecosystem.config.js --update-env || pm2 start ecosystem.config.js
             
@@ -165,8 +165,6 @@ jobs:
   rollback:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
-    environment:
-      name: production
     steps:
       - name: Configure SSH
         run: |
