@@ -1,7 +1,8 @@
 module.exports = {
   apps: [{
     name: 'myapp',
-    script: './dist/index.js', // Adjust based on your entry point
+    script: 'npm',
+    args: 'start',
     instances: 'max',
     exec_mode: 'cluster',
     autorestart: true,
