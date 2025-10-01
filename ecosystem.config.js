@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: 'myapp',
-    script: 'npm',
+    script: 'server.js',
     args: 'start',
     instances: 'max',
     exec_mode: 'cluster',
